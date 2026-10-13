@@ -1,0 +1,4 @@
+.env
+*.exe
+/word-api
+data/glove*
