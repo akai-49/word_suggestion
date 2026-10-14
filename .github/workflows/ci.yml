@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main, dev]
+  pull_request:
+    branches: [master, main, dev]
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Verify dependencies and vet
+        run: |
+          go mod tidy
+          go vet ./...
+
+      - name: Build Go binary
+        run: CGO_ENABLED=0 go build -ldflags="-s -w" -o word-api .
+
+      - name: Build Docker image
+        run: docker build -t word-api:ci .
