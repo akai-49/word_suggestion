@@ -9,6 +9,8 @@ on:
 jobs:
   build-and-verify:
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: auto
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

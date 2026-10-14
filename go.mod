@@ -1,6 +1,6 @@
 module word-api
 
-go 1.26.0
+go 1.23
 
 require github.com/redis/go-redis/v9 v9.23.0
 
