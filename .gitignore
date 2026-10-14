@@ -1,4 +1,6 @@
 .env
+.venv/
+.DS_Store
 *.exe
 /word-api
-data/glove*
+data/

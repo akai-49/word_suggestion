@@ -8,14 +8,35 @@ import numpy as np
 
 N, K = 30000, 8
 words, vecs = [], []
-with open(sys.argv[1], encoding="utf8") as f:
-    for i, line in enumerate(f):  # file is frequency-ordered
-        if i >= N:
-            break
-        p = line.split()
-        if p[0].isalpha() and p[0].isascii() and len(p[0]) > 2:
-            words.append(p[0].lower())
-            vecs.append(np.asarray(p[1:], dtype=np.float32))
+with open(sys.argv[1], "rb") as f:
+    first = f.readline()
+    parts = first.split()
+    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+        dim = int(parts[1])
+        for _ in range(N):
+            w_bytes = bytearray()
+            while True:
+                ch = f.read(1)
+                if ch == b" " or not ch:
+                    break
+                if ch != b"\n":
+                    w_bytes.extend(ch)
+            if not w_bytes:
+                break
+            raw = f.read(4 * dim)
+            w = w_bytes.decode("utf8", errors="ignore")
+            if w.isalpha() and w.isascii() and len(w) > 2:
+                words.append(w.lower())
+                vecs.append(np.frombuffer(raw, dtype=np.float32).copy())
+    else:
+        f.seek(0)
+        for i, raw_line in enumerate(f):
+            if i >= N:
+                break
+            p = raw_line.decode("utf8", errors="ignore").split()
+            if p and p[0].isalpha() and p[0].isascii() and len(p[0]) > 2:
+                words.append(p[0].lower())
+                vecs.append(np.asarray(p[1:], dtype=np.float32))
 V = np.stack(vecs)
 V /= np.linalg.norm(V, axis=1, keepdims=True)
 
