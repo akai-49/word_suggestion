@@ -18,7 +18,7 @@ import (
 var (
 	rdb      *redis.Client
 	pat      = regexp.MustCompile(`^[a-z]{1,30}$`)
-	writeKey = os.Getenv("WRITE_KEY")
+	writeKey = strings.TrimSpace(os.Getenv("WRITE_KEY"))
 	origin   = env("ALLOWED_ORIGINS", "*")
 	rateMax  = envInt("RATE_LIMIT", 60) // requests/min/IP
 	cache    = &lru{m: map[string]entry{}}
@@ -26,14 +26,14 @@ var (
 )
 
 func env(k, d string) string {
-	if v := os.Getenv(k); v != "" {
+	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
 		return v
 	}
 	return d
 }
 
 func envInt(k string, d int) int {
-	if n, err := strconv.Atoi(os.Getenv(k)); err == nil {
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(k))); err == nil {
 		return n
 	}
 	return d
@@ -106,6 +106,9 @@ func clean(s string) (string, bool) {
 }
 
 func suggest(ctx context.Context, q string, n int) []string {
+	if rdb == nil {
+		return []string{}
+	}
 	key := "s:" + q + ":" + strconv.Itoa(n)
 	if v, ok := cache.get(key); ok {
 		return v
@@ -119,6 +122,9 @@ func suggest(ctx context.Context, q string, n int) []string {
 }
 
 func related(ctx context.Context, w string) []string {
+	if rdb == nil {
+		return []string{}
+	}
 	key := "r:" + w
 	if v, ok := cache.get(key); ok {
 		return v
@@ -154,12 +160,36 @@ func middleware(next http.Handler) http.Handler {
 	})
 }
 
-func main() {
-	opt, err := redis.ParseURL(os.Getenv("REDIS_URL"))
-	if err != nil {
-		log.Fatal("bad REDIS_URL: ", err)
+func startKeepAlive() {
+	extURL := strings.TrimRight(strings.TrimSpace(os.Getenv("RENDER_EXTERNAL_URL")), "/")
+	if extURL == "" {
+		return
 	}
-	rdb = redis.NewClient(opt)
+	go func() {
+		client := &http.Client{Timeout: 10 * time.Second}
+		ticker := time.NewTicker(12 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			resp, err := client.Get(extURL + "/health")
+			if err == nil {
+				resp.Body.Close()
+			}
+		}
+	}()
+}
+
+func main() {
+	rawURL := strings.Trim(strings.TrimSpace(os.Getenv("REDIS_URL")), "\"'")
+	if strings.HasPrefix(rawURL, "redis://") && strings.Contains(rawURL, ".upstash.io") {
+		rawURL = "rediss://" + strings.TrimPrefix(rawURL, "redis://")
+	}
+	if opt, err := redis.ParseURL(rawURL); err != nil {
+		log.Printf("WARN: bad or missing REDIS_URL: %v", err)
+	} else {
+		rdb = redis.NewClient(opt)
+	}
+
+	startKeepAlive()
 
 	mux := http.NewServeMux()
 
@@ -206,6 +236,10 @@ func main() {
 			writeJSON(w, 401, map[string]string{"detail": "unauthorized"})
 			return
 		}
+		if rdb == nil {
+			writeJSON(w, 502, map[string]string{"detail": "redis not configured"})
+			return
+		}
 		word, ok := clean(r.URL.Query().Get("word"))
 		if !ok {
 			writeJSON(w, 400, map[string]string{"detail": "invalid input"})
@@ -227,7 +261,7 @@ func main() {
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 
-	addr := ":" + env("PORT", "8000")
+	addr := "0.0.0.0:" + env("PORT", "8000")
 	log.Println("listening on", addr)
 	log.Fatal((&http.Server{
 		Addr:              addr,
