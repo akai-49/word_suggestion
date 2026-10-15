@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -165,19 +166,29 @@ func middleware(next http.Handler) http.Handler {
 }
 
 func startKeepAlive() {
-	extURL := strings.TrimRight(strings.TrimSpace(os.Getenv("RENDER_EXTERNAL_URL")), "/")
+	extURL := strings.TrimRight(env("RENDER_EXTERNAL_URL", env("KEEPALIVE_URL", "")), "/")
 	if extURL == "" {
 		return
 	}
+	target := extURL + "/health"
+	log.Println("keep-alive enabled: pinging", target, "every 12m")
 	go func() {
 		client := &http.Client{Timeout: 10 * time.Second}
 		ticker := time.NewTicker(12 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			resp, err := client.Get(extURL + "/health")
-			if err == nil {
-				resp.Body.Close()
+			req, err := http.NewRequest(http.MethodGet, target, nil)
+			if err != nil {
+				continue
 			}
+			req.Header.Set("User-Agent", "word-api-keepalive/1.0")
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Printf("keep-alive ping failed: %v", err)
+				continue
+			}
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
 		}
 	}()
 }
