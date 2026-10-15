@@ -10,6 +10,7 @@ Word suggestion / related-word / hashtag API. Go + Upstash Redis.
 | GET | `/hashtags?q=trav` | suggest + related as `#tags` |
 | POST | `/learn?word=travel` | bump count; header `X-API-Key: $WRITE_KEY` |
 | GET | `/health` | liveness |
+| GET | `/llms.txt` | LLM-friendly API documentation (`text/plain`) |
 
 ## Setup
 ```bash
@@ -20,8 +21,8 @@ go mod tidy                     # creates go.sum (needs Go 1.22+)
 ### Load data (once)
 ```bash
 pip install -r scripts/requirements.txt
-# download glove.6B.50d.txt into data/ (check license), then:
-python scripts/build.py data/glove.6B.50d.txt
+# download glove.6B.50d.txt or glove.6B.300d into data/ (check license), then:
+python scripts/build.py data/glove.6B.300d
 REDIS_URL=... python scripts/loader.py
 ```
 

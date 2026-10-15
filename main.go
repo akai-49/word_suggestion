@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -14,6 +15,9 @@ import (
 
 	"github.com/redis/go-redis/v9"
 )
+
+//go:embed llms.txt
+var llmsTxt []byte
 
 var (
 	rdb      *redis.Client
@@ -259,6 +263,12 @@ func main() {
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]bool{"ok": true})
+	})
+
+	mux.HandleFunc("GET /llms.txt", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write(llmsTxt)
 	})
 
 	addr := "0.0.0.0:" + env("PORT", "8000")

@@ -1,0 +1,76 @@
+# word-api
+
+> Lightweight, high-performance Go + Upstash Redis REST API for prefix word autocomplete, semantic related-word recommendations (built from Stanford GloVe embeddings), and hashtag generation.
+
+- Production Base URL: `https://word-suggestion-yaub.onrender.com`
+- Content-Type: `application/json` (all data endpoints), `text/plain; charset=utf-8` (`/llms.txt`)
+- Input constraints: Lowercase ASCII letters `^[a-z]{1,30}$` (leading `#` and whitespace are stripped automatically; uppercase input is lowercased).
+- Rate limit: Fixed-window per client IP (`RATE_LIMIT`, default `60` requests/minute/IP). Exceeding the limit returns `429 Too Many Requests` with `{"detail": "rate limit"}`.
+- Caching: In-memory TTL cache (10 minutes, up to 20,000 entries per instance); automatically cleared on `POST /learn`.
+
+## Endpoints
+
+### GET /suggest
+Prefix autocomplete ranked by word frequency in Redis sorted sets (`ac:<prefix>`).
+
+- Query Parameters:
+  - `q` (required): Prefix string (`1-30` ASCII letters, e.g., `trav`).
+  - `n` (optional): Number of suggestions to return (`1-20`, default `8`).
+- Example Request:
+  `GET https://word-suggestion-yaub.onrender.com/suggest?q=trav&n=8`
+- Example Response (`200 OK`):
+  `["travel", "traveling", "travelers", "travels", "travelling", "travis", "traverse", "travellers"]`
+
+### GET /related
+Returns up to 8 precomputed semantically similar words using cosine similarity over Stanford GloVe word vectors (`rel` hash).
+
+- Query Parameters:
+  - `w` (required): Target word (`1-30` ASCII letters, e.g., `travel`).
+- Example Request:
+  `GET https://word-suggestion-yaub.onrender.com/related?w=travel`
+- Example Response (`200 OK`):
+  `["travelers", "trips", "traveling", "trip", "travelling", "destinations", "travellers", "flights"]`
+
+### GET /hashtags
+Combines prefix autocomplete (`GET /suggest`, up to 8 items) and semantic related words (`GET /related`) into a deduplicated list of up to 10 `#`-prefixed hashtags.
+
+- Query Parameters:
+  - `q` (required): Prefix or word (`1-30` ASCII letters, `#` optional, e.g., `trav`).
+- Example Request:
+  `GET https://word-suggestion-yaub.onrender.com/hashtags?q=trav`
+- Example Response (`200 OK`):
+  `["#travel", "#traveling", "#travelers", "#travels", "#travelling", "#travis", "#traverse", "#travellers"]`
+
+### POST /learn
+Increments frequency scores by `1` across Redis sorted sets (`ac:<prefix>`) for all prefixes of `word` from length `1` up to `10`, then clears the in-memory suggestion cache.
+
+- Headers:
+  - `X-API-Key` (required): Must match the server's `WRITE_KEY` environment variable.
+- Query Parameters:
+  - `word` (required): Word to boost (`1-30` ASCII letters, e.g., `travel`).
+- Example Request:
+  `POST https://word-suggestion-yaub.onrender.com/learn?word=travel` with header `X-API-Key: <WRITE_KEY>`
+- Example Response (`200 OK`):
+  `{"ok": true}`
+- Error Responses:
+  - `401 Unauthorized`: `{"detail": "unauthorized"}`
+  - `400 Bad Request`: `{"detail": "invalid input"}`
+  - `502 Bad Gateway`: `{"detail": "redis error"}`
+
+### GET /health
+Liveness check used by Render health probes and keep-alive monitors. Does not query Redis.
+
+- Example Request:
+  `GET https://word-suggestion-yaub.onrender.com/health`
+- Example Response (`200 OK`):
+  `{"ok": true}`
+
+### GET /llms.txt
+Returns this machine-readable API specification in Markdown (`text/plain; charset=utf-8`).
+
+## Repository & Architecture
+
+- `main.go`: Go HTTP server, middleware (CORS, IP rate limiting, 2s request timeout), in-memory cache, Redis client, and 12-minute Render keep-alive goroutine.
+- `scripts/build.py`: Builds `data/words.json` (27,562 words) and `data/related.json` (top-8 cosine neighbors) from plain-text or binary Word2Vec GloVe embeddings.
+- `scripts/loader.py`: Seeds Upstash Redis with `ac:<prefix>` sorted sets and the `rel` hash table.
+- `Dockerfile`: Multi-stage build (`golang:1.23` -> `gcr.io/distroless/static`).
